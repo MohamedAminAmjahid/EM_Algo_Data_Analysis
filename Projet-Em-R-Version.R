@@ -1,87 +1,95 @@
+# Required libraries
+library(MASS) # For mvrnorm function
+
 # Function to initialize parameters
 initparameters <- function(X, G, modelNames) {
   # Your initialization logic goes here
-  # You need to initialize means, variances, and proportions for each component
-  # For simplicity, let's initialize means randomly, variances to 1, and equal proportions
-  means <- runif(G)
-  variances <- rep(1, G)
+  # Example: Randomly initialize means, variances, and proportions
+  means <- runif(G, min = min(X), max = max(X))
+  variances <- runif(G, min = 0.1, max = 1)
   proportions <- rep(1/G, G)
   
+  # For simplicity, assuming a univariate Gaussian mixture model
   parameters <- list(means = means, variances = variances, proportions = proportions)
-  
   return(parameters)
 }
 
-# Function for the E-step
+# E-step function
 E.step <- function(X, parameters) {
   # Your E-step logic goes here
-  # Calculate the probabilities for each data point belonging to each component
-  # Using the probability density function of a normal distribution
+  # Calculate the responsibility matrix
+  # Example: Use dnorm to compute the probability density for each data point
+  #         under each Gaussian component and update the responsibility matrix
+  G <- length(parameters$means)
+  T <- matrix(0, nrow = length(X), ncol = G)
   
-  # For simplicity, let's assume a univariate normal distribution
-  likelihoods <- sapply(1:length(parameters$means), function(j) {
-    dnorm(X, mean = parameters$means[j], sd = sqrt(parameters$variances[j]))
-  })
+  for (g in 1:G) {
+    T[, g] <- parameters$proportions[g] * dnorm(X, mean = parameters$means[g], sd = sqrt(parameters$variances[g]))
+  }
   
-  # Calculate the responsibilities
-  responsibilities <- t(likelihoods) * parameters$proportions
-  responsibilities <- responsibilities / rowSums(responsibilities)
-  
-  return(responsibilities)
+  T <- T / rowSums(T) # Normalize to get the responsibilities
+  return(T)
 }
-# Function for the M-step
-M.step <- function(X, responsibilities, G, modelNames) {
+# M-step function
+M.step <- function(X, T, G, modelNames) {
   # Your M-step logic goes here
-  # Update the parameters based on the responsibilities
+  # Update the parameters based on the responsibility matrix
+  # Example: Update means, variances, and proportions
+  parameters <- list()
   
-  # Update means
-  means <- colSums(responsibilities * X) / colSums(responsibilities)
-  
-  # Update variances
-  variances <- colSums(responsibilities * (X - means)^2) / colSums(responsibilities)
-  
-  # Update proportions
-  proportions <- colSums(responsibilities) / sum(responsibilities)  # Update to use sum(responsibilities)
-  
-  parameters <- list(means = means, variances = variances, proportions = proportions)
+  for (g in 1:G) {
+    N_g <- sum(T[, g])
+    if (modelNames == "V") {
+      # Update for model "V"
+      parameters$means[g] <- sum(T[, g] * X) / N_g
+      parameters$variances[g] <- sum(T[, g] * (X - parameters$means[g])^2) / N_g
+    }else if (modelNames == "E") {
+      # Update for model "E" (add your logic here)
+      # Example: Update means only, and keep variances fixed
+      parameters$means[g] <- sum(T[, g] * X) / N_g
+      parameters$variances[g] <- 1  # Fix variances to 1 in this example
+    }
+    parameters$proportions[g] <- N_g / length(X)
+  }
   
   return(parameters)
 }
 
-
-# Function for the EM algorithm
-EM <- function(X, G = 2, modelNames = "V") {
-  # Initialize parameters
+# Function to perform EM algorithm
+EM.algorithm <- function(X, G = 2, modelNames = "V", max_iter = 100, tol = 1e-6) {
+  # Initialization
   parameters <- initparameters(X, G, modelNames)
   
-  # EM algorithm loop
-  max_iter <- 100  # Set the maximum number of iterations
   for (iter in 1:max_iter) {
     # E-step
-    responsibilities <- E.step(X, parameters)
+    T <- E.step(X, parameters)
     
     # M-step
-    parameters <- M.step(X, responsibilities, G, modelNames)
+    new_parameters <- M.step(X, T, G, modelNames)
+    
+    # Check convergence
+    if (sum(abs(unlist(new_parameters) - unlist(parameters))) < tol) {
+      break
+    }
+    
+    parameters <- new_parameters
   }
   
-  # Return the final parameters and responsibilities
-  return(list(parameters = parameters, T = max_iter))
+  return(list(parameters = parameters, T = T))
 }
 
-# Simulate data
-set.seed(123)
-z <- rmultinom(1000, 1, prob = c(1/3, 2/3))
-Effectif <- rowSums(z)
-x <- c(rnorm(Effectif[1]), rnorm(Effectif[2], mean = 8, sd = 1))
+# Simulate data from Exercise 1
+n <- 1000
+mu1 <- 0
+sigma1 <- 1
+pi1 <- 1/3
+mu2 <- 4
+sigma2 <- 1/2
+pi2 <- 2/3
+data <- c(rnorm(n * pi1, mean = mu1, sd = sigma1), rnorm(n * pi2, mean = mu2, sd = sigma2))
+G <- 2
+result <-  EM.algorithm(data, G = 2, modelNames = "E")
 
-result <- EM(x, G = 2, modelNames = "V")
-
-
-# Afficher la moyenne pour chaque composante
-for (i in 1:length(mean_values)) {
-  cat("Moyenne pour la composante", i, ":", mean_values[i], "\n")
-}
-
-
-# Display the result
-print(result)
+# Display the results
+print("Estimated Parameters:")
+print(result$parameters)
